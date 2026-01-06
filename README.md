@@ -1,8 +1,8 @@
 # Fixture Generator
 
-> ⚠️ **Disclaimer:** This tool was vibe coded. Use with caution.
+> ⚠️ **Disclaimer:** This is a simple tool that was coded heavily with Claude Opus. Not everything has been reviewed, so use with caution.
 
-Generates `Fixture<TypeName>()` functions for Go structs, enums, and protobuf types.
+A simple tool that generates `Fixture<TypeName>()` functions for Go structs, type definitions, and enums.
 
 ## Features
 
@@ -10,7 +10,7 @@ Generates `Fixture<TypeName>()` functions for Go structs, enums, and protobuf ty
 - Supports primitive types, pointers, slices, and nested structs
 - Handles protobuf-generated types (skips internal fields like `state`, `sizeCache`, etc.)
 - Supports enums (returns the first defined value)
-- Includes a generic `ptr[T]` helper function for pointer fields
+- Supports oneofs (takes the first defined value)
 
 ## Installation
 
