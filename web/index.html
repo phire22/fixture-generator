@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Go Fixture Generator</title>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css"
+        />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    Oxygen, Ubuntu, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background: #1a1a2e;
+                color: #eee;
+                min-height: 100vh;
+            }
+            h1 {
+                text-align: center;
+                margin-bottom: 10px;
+                color: #00d9ff;
+            }
+            .subtitle {
+                text-align: center;
+                color: #888;
+                margin-bottom: 30px;
+            }
+            .container {
+                display: flex;
+                gap: 20px;
+                max-width: 1600px;
+                margin: 0 auto;
+                align-items: stretch;
+            }
+            .panel {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                min-height: 600px;
+            }
+            label {
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #00d9ff;
+            }
+            textarea {
+                flex: 1;
+                height: 100%;
+                padding: 15px;
+                font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+                font-size: 13px;
+                border: 1px solid #333;
+                border-radius: 8px;
+                background: #0d0d1a;
+                color: #e0e0e0;
+                resize: vertical;
+            }
+            textarea:focus {
+                outline: none;
+                border-color: #00d9ff;
+            }
+            .controls {
+                display: flex;
+                gap: 15px;
+                align-items: center;
+                justify-content: center;
+                margin: 20px 0;
+            }
+            input[type="text"] {
+                padding: 10px 15px;
+                font-size: 14px;
+                border: 1px solid #333;
+                border-radius: 6px;
+                background: #0d0d1a;
+                color: #eee;
+                width: 200px;
+            }
+            input[type="text"]:focus {
+                outline: none;
+                border-color: #00d9ff;
+            }
+            button {
+                padding: 12px 30px;
+                font-size: 16px;
+                font-weight: 600;
+                border: none;
+                border-radius: 6px;
+                background: #00d9ff;
+                color: #1a1a2e;
+                cursor: pointer;
+                transition: background 0.2s;
+            }
+            button:hover {
+                background: #00b8d9;
+            }
+            button:disabled {
+                background: #444;
+                cursor: not-allowed;
+            }
+            .error {
+                color: #ff6b6b;
+                text-align: center;
+                margin-top: 10px;
+            }
+            .loading {
+                text-align: center;
+                color: #888;
+            }
+            .copy-btn {
+                padding: 8px 16px;
+                font-size: 12px;
+                background: #333;
+                color: #eee;
+                margin-left: auto;
+            }
+            .copy-btn:hover {
+                background: #444;
+            }
+            .panel-header {
+                display: flex;
+                align-items: center;
+                margin-bottom: 8px;
+            }
+            .panel-header label {
+                margin-bottom: 0;
+            }
+            .output-wrapper {
+                flex: 1;
+                position: relative;
+                display: flex;
+                flex-direction: column;
+            }
+            .code-container {
+                flex: 1;
+                position: relative;
+                border: 1px solid #333;
+                border-radius: 8px;
+                overflow: hidden;
+                background: #282c34;
+            }
+            .code-container pre {
+                margin: 0;
+                padding: 15px;
+                height: 100%;
+                overflow: auto;
+                background: #282c34;
+            }
+            .code-container code {
+                font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+                font-size: 13px;
+                background: transparent !important;
+            }
+            .code-container .hljs {
+                background: #282c34;
+                padding: 0;
+            }
+            .placeholder-text {
+                color: #666;
+                font-style: italic;
+            }
+            .toggle-container {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-left: 15px;
+            }
+            .toggle-container label {
+                font-size: 12px;
+                color: #888;
+                margin: 0;
+                font-weight: normal;
+            }
+            .toggle-switch {
+                position: relative;
+                width: 36px;
+                height: 20px;
+            }
+            .toggle-switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .toggle-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #333;
+                transition: 0.3s;
+                border-radius: 20px;
+            }
+            .toggle-slider:before {
+                position: absolute;
+                content: "";
+                height: 14px;
+                width: 14px;
+                left: 3px;
+                bottom: 3px;
+                background-color: #888;
+                transition: 0.3s;
+                border-radius: 50%;
+            }
+            .toggle-switch input:checked + .toggle-slider {
+                background-color: #00d9ff33;
+            }
+            .toggle-switch input:checked + .toggle-slider:before {
+                transform: translateX(16px);
+                background-color: #00d9ff;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Go Fixture Generator</h1>
+        <p class="subtitle">
+            Paste your Go structs and generate fixture functions
+        </p>
+
+        <div class="controls">
+            <label for="pkgName" style="margin: 0">Package:</label>
+            <input
+                type="text"
+                id="pkgName"
+                value="fixtures"
+                placeholder="Package name"
+            />
+            <button id="generateBtn" onclick="generate()">
+                Generate Fixtures
+            </button>
+        </div>
+
+        <div class="container">
+            <div class="panel">
+                <div class="panel-header">
+                    <label for="input">Input (Go structs)</label>
+                    <button class="copy-btn" style="visibility: hidden">
+                        Copy
+                    </button>
+                </div>
+                <textarea
+                    id="input"
+                    placeholder="package example
+
+type User struct {
+    ID        string
+    FirstName string
+    LastName  string
+    Email     string
+    Age       int
+    Active    bool
+    Address   *Address
+    Tags      []string
+}
+
+type Address struct {
+    Street  string
+    City    string
+    Country string
+}"
+                ></textarea>
+            </div>
+            <div class="panel">
+                <div class="panel-header">
+                    <label>Output (Fixture functions)</label>
+                    <div class="toggle-container">
+                        <label for="highlightToggle">Syntax highlighting</label>
+                        <div class="toggle-switch">
+                            <input
+                                type="checkbox"
+                                id="highlightToggle"
+                                checked
+                                onchange="toggleHighlighting()"
+                            />
+                            <span class="toggle-slider"></span>
+                        </div>
+                    </div>
+                    <button class="copy-btn" onclick="copyOutput()">
+                        Copy
+                    </button>
+                </div>
+                <div class="output-wrapper">
+                    <div class="code-container" id="highlightedOutput">
+                        <pre><code class="language-go placeholder-text">Generated fixtures will appear here...</code></pre>
+                    </div>
+                    <textarea
+                        id="output"
+                        readonly
+                        placeholder="Generated fixtures will appear here..."
+                        style="display: none"
+                    ></textarea>
+                </div>
+            </div>
+        </div>
+
+        <p id="error" class="error"></p>
+        <p id="loading" class="loading">Loading WebAssembly...</p>
+
+        <script src="wasm_exec.js"></script>
+        <script>
+            const go = new Go();
+            let wasmReady = false;
+            let currentOutput = "";
+            let highlightingEnabled = true;
+
+            WebAssembly.instantiateStreaming(
+                fetch("main.wasm"),
+                go.importObject,
+            )
+                .then((result) => {
+                    go.run(result.instance);
+                    wasmReady = true;
+                    document.getElementById("loading").style.display = "none";
+                    document.getElementById("generateBtn").disabled = false;
+                })
+                .catch((err) => {
+                    document.getElementById("loading").textContent =
+                        "Failed to load WebAssembly: " + err;
+                    document.getElementById("loading").style.color = "#ff6b6b";
+                });
+
+            document.getElementById("generateBtn").disabled = true;
+
+            function toggleHighlighting() {
+                highlightingEnabled =
+                    document.getElementById("highlightToggle").checked;
+                const highlightedOutput =
+                    document.getElementById("highlightedOutput");
+                const plainOutput = document.getElementById("output");
+
+                if (highlightingEnabled) {
+                    highlightedOutput.style.display = "block";
+                    plainOutput.style.display = "none";
+                } else {
+                    highlightedOutput.style.display = "none";
+                    plainOutput.style.display = "block";
+                }
+            }
+
+            function updateOutput(code) {
+                currentOutput = code;
+                const highlightedOutput =
+                    document.getElementById("highlightedOutput");
+                const plainOutput = document.getElementById("output");
+
+                plainOutput.value = code;
+
+                if (code) {
+                    const highlighted = hljs.highlight(code, {
+                        language: "go",
+                    }).value;
+                    highlightedOutput.innerHTML = `<pre><code class="language-go hljs">${highlighted}</code></pre>`;
+                } else {
+                    highlightedOutput.innerHTML =
+                        '<pre><code class="language-go placeholder-text">Generated fixtures will appear here...</code></pre>';
+                }
+            }
+
+            function generate() {
+                if (!wasmReady) {
+                    document.getElementById("error").textContent =
+                        "WebAssembly not loaded yet";
+                    return;
+                }
+
+                const input = document.getElementById("input").value;
+                const pkgName =
+                    document.getElementById("pkgName").value || "fixtures";
+
+                document.getElementById("error").textContent = "";
+
+                try {
+                    const result = generateFixtures(input, pkgName);
+                    if (result.error) {
+                        document.getElementById("error").textContent =
+                            result.error;
+                        updateOutput("");
+                    } else {
+                        updateOutput(result.output);
+                    }
+                } catch (e) {
+                    document.getElementById("error").textContent =
+                        "Error: " + e.message;
+                }
+            }
+
+            function copyOutput() {
+                if (!currentOutput) return;
+
+                navigator.clipboard
+                    .writeText(currentOutput)
+                    .then(() => {
+                        const btn = document.querySelector(
+                            ".panel:last-child .copy-btn",
+                        );
+                        const originalText = btn.textContent;
+                        btn.textContent = "Copied!";
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                        }, 1500);
+                    })
+                    .catch((err) => {
+                        // Fallback for older browsers
+                        const plainOutput = document.getElementById("output");
+                        const wasHidden = plainOutput.style.display === "none";
+                        if (wasHidden) {
+                            plainOutput.style.display = "block";
+                            plainOutput.style.position = "absolute";
+                            plainOutput.style.left = "-9999px";
+                        }
+                        plainOutput.select();
+                        document.execCommand("copy");
+                        if (wasHidden) {
+                            plainOutput.style.display = "none";
+                            plainOutput.style.position = "";
+                            plainOutput.style.left = "";
+                        }
+
+                        const btn = document.querySelector(
+                            ".panel:last-child .copy-btn",
+                        );
+                        const originalText = btn.textContent;
+                        btn.textContent = "Copied!";
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                        }, 1500);
+                    });
+            }
+
+            // Generate on Ctrl+Enter
+            document
+                .getElementById("input")
+                .addEventListener("keydown", (e) => {
+                    if (e.ctrlKey && e.key === "Enter") {
+                        generate();
+                    }
+                });
+        </script>
+    </body>
+</html>
