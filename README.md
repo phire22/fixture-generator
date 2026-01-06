@@ -1,5 +1,7 @@
 # Fixture Generator
 
+**Try it online: https://phire22.github.io/fixture-generator/**
+
 > ⚠️ **Disclaimer:** This is a simple tool that was coded heavily with Claude Opus. Not everything has been reviewed, so use with caution.
 
 A simple tool that generates `Fixture<TypeName>()` functions for Go structs, type definitions, and enums.
@@ -51,13 +53,10 @@ go run ./main \
 
 ## Web Interface
 
-A browser-based version is available in the `web/` directory. It uses WebAssembly to run the generator directly in your browser.
+A browser-based version that uses WebAssembly to run the generator directly in your browser.
 
-To use it:
-
-1. Open `web/index.html` in your browser
-2. Paste your Go struct definitions
-3. Click "Generate Fixtures"
+1. Paste your Go struct definitions
+2. Click "Generate Fixtures"
 
 To rebuild the WebAssembly binary:
 
