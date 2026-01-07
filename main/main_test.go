@@ -15,10 +15,17 @@ func TestGenValue(t *testing.T) {
 	}
 
 	oneofModel := &generator.Model{
-		Structs: map[string]*generator.Struct{},
-		Enums:   map[string]*generator.Enum{},
+		Structs: map[string]*generator.Struct{
+			"UserReference_EmailId": {
+				Name: "UserReference_EmailId",
+				Fields: []generator.Field{
+					{Name: "EmailId", Type: generator.TypeRef{Kind: "primitive", Name: "string"}},
+				},
+			},
+		},
+		Enums: map[string]*generator.Enum{},
 		OneOfs: map[string]string{
-			"isItemVersionReference_Id": "ItemVersionReference_OseonId",
+			"isUserReference_Id": "UserReference_EmailId",
 		},
 	}
 
@@ -67,16 +74,16 @@ func TestGenValue(t *testing.T) {
 			model:      emptyModel,
 			typeRef:    generator.TypeRef{Kind: "primitive", Name: "string"},
 			fieldName:  "Id",
-			structName: "ProductionOrder",
-			want:       `"ProductionOrderID"`,
+			structName: "Account",
+			want:       `"AccountID"`,
 		},
 		{
 			name:       "proto enum field",
 			model:      emptyModel,
 			typeRef:    generator.TypeRef{Kind: "enum", Name: "Status"},
 			fieldName:  "Status",
-			structName: "ProductionOrder",
-			want:       "FixtureStatus()",
+			structName: "Account",
+			want:       "*FixtureStatus()",
 		},
 		{
 			name:       "proto struct field",
@@ -84,7 +91,7 @@ func TestGenValue(t *testing.T) {
 			typeRef:    generator.TypeRef{Kind: "struct", Name: "Address"},
 			fieldName:  "Address",
 			structName: "User",
-			want:       "FixtureAddress()",
+			want:       "*FixtureAddress()",
 		},
 		{
 			name:       "proto pointer field",
@@ -92,7 +99,7 @@ func TestGenValue(t *testing.T) {
 			typeRef:    generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "struct", Name: "Address"}},
 			fieldName:  "Address",
 			structName: "User",
-			want:       "ptr(FixtureAddress())",
+			want:       "*FixtureAddress()",
 		},
 		{
 			name:       "proto slice field",
@@ -107,15 +114,15 @@ func TestGenValue(t *testing.T) {
 			model:      emptyModel,
 			typeRef:    generator.TypeRef{Kind: "slice", Elem: &generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "struct", Name: "Activity"}}},
 			fieldName:  "Activities",
-			structName: "Operation",
-			want:       `[]*Activity{ptr(FixtureActivity())}`,
+			structName: "User",
+			want:       `[]*Activity{*FixtureActivity()}`,
 		},
 		{
 			name:       "pointer to unknown/external type returns nil",
 			model:      emptyModel,
 			typeRef:    generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "unknown"}},
 			fieldName:  "StateTimestamp",
-			structName: "ProductionOrder",
+			structName: "User",
 			want:       "nil",
 		},
 		{
@@ -123,16 +130,16 @@ func TestGenValue(t *testing.T) {
 			model:      emptyModel,
 			typeRef:    generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "external", Name: "Timestamp"}},
 			fieldName:  "CreatedAt",
-			structName: "ProductionOrder",
+			structName: "User",
 			want:       "timestamppb.New(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))",
 		},
 		{
 			name:       "oneof field picks first implementation",
 			model:      oneofModel,
-			typeRef:    generator.TypeRef{Kind: "oneof", Name: "isItemVersionReference_Id"},
+			typeRef:    generator.TypeRef{Kind: "oneof", Name: "isUserReference_Id"},
 			fieldName:  "Id",
-			structName: "ItemVersionReference",
-			want:       "&ItemVersionReference_OseonId{}",
+			structName: "UserReference",
+			want:       "&UserReference_EmailId{\n\t\t\tEmailId: \"EmailId\",\n\t\t}",
 		},
 	}
 
@@ -158,6 +165,128 @@ func TestProtoInternalFieldsSkipped(t *testing.T) {
 	}
 }
 
+func TestGenerateWithOptions(t *testing.T) {
+	tests := []struct {
+		name     string
+		model    *generator.Model
+		pkg      string
+		opts     generator.GenerateOptions
+		contains []string
+	}{
+		{
+			name: "with type and func prefix (mod style)",
+			model: &generator.Model{
+				Structs: map[string]*generator.Struct{
+					"User": {
+						Name: "User",
+						Fields: []generator.Field{
+							{Name: "ID", Type: generator.TypeRef{Kind: "primitive", Name: "string"}},
+							{Name: "Role", Type: generator.TypeRef{Kind: "enum", Name: "Role"}},
+							{Name: "Address", Type: generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "struct", Name: "Address"}}},
+						},
+					},
+				},
+				Enums: map[string]*generator.Enum{
+					"Role": {
+						Name:   "Role",
+						Values: []string{"ROLE_UNSPECIFIED"},
+					},
+				},
+				OneOfs: map[string]string{},
+			},
+			pkg: "fixtures",
+			opts: generator.GenerateOptions{
+				TypePrefix: "account",
+				FuncPrefix: "Account",
+				ModStyle:   true,
+			},
+			contains: []string{
+				"func FixtureAccountUser(mods ...func(*account.User)) *account.User {",
+				"value := &account.User{",
+				"Role: *FixtureAccountRole()",
+				"Address: *FixtureAccountAddress()",
+				"for _, mod := range mods {",
+				"mod(value)",
+				"return value",
+				"func FixtureAccountRole(mods ...func(*account.Role)) *account.Role {",
+				"value := account.ROLE_UNSPECIFIED",
+			},
+		},
+		{
+			name: "with type and func prefix (classic style)",
+			model: &generator.Model{
+				Structs: map[string]*generator.Struct{
+					"User": {
+						Name: "User",
+						Fields: []generator.Field{
+							{Name: "ID", Type: generator.TypeRef{Kind: "primitive", Name: "string"}},
+							{Name: "Role", Type: generator.TypeRef{Kind: "enum", Name: "Role"}},
+							{Name: "Address", Type: generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "struct", Name: "Address"}}},
+						},
+					},
+				},
+				Enums: map[string]*generator.Enum{
+					"Role": {
+						Name:   "Role",
+						Values: []string{"ROLE_UNSPECIFIED"},
+					},
+				},
+				OneOfs: map[string]string{},
+			},
+			pkg: "fixtures",
+			opts: generator.GenerateOptions{
+				TypePrefix: "account",
+				FuncPrefix: "Account",
+				ModStyle:   false,
+			},
+			contains: []string{
+				"func FixtureAccountUser() account.User {",
+				"return account.User{",
+				"Role: FixtureAccountRole()",
+				"Address: ptr(FixtureAccountAddress())",
+				"func FixtureAccountRole() account.Role {",
+				"return account.ROLE_UNSPECIFIED",
+			},
+		},
+		{
+			name: "with slice of structs and prefix (mod style)",
+			model: &generator.Model{
+				Structs: map[string]*generator.Struct{
+					"User": {
+						Name: "User",
+						Fields: []generator.Field{
+							{Name: "Addresses", Type: generator.TypeRef{Kind: "slice", Elem: &generator.TypeRef{Kind: "pointer", Elem: &generator.TypeRef{Kind: "struct", Name: "Address"}}}},
+						},
+					},
+				},
+				Enums:  map[string]*generator.Enum{},
+				OneOfs: map[string]string{},
+			},
+			pkg: "fixtures",
+			opts: generator.GenerateOptions{
+				TypePrefix: "account",
+				FuncPrefix: "M",
+				ModStyle:   true,
+			},
+			contains: []string{
+				"func FixtureMUser(mods ...func(*account.User)) *account.User {",
+				"Addresses: []*account.Address{*FixtureMAddress()}",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generator.GenerateWithOptions(tt.model, tt.pkg, tt.opts)
+			for _, want := range tt.contains {
+				if !strings.Contains(got, want) {
+					t.Errorf("GenerateWithOptions() output missing %q\nGot:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerate(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -166,7 +295,7 @@ func TestGenerate(t *testing.T) {
 		contains []string
 	}{
 		{
-			name: "basic struct",
+			name: "basic struct (mod style default)",
 			model: &generator.Model{
 				Structs: map[string]*generator.Struct{
 					"User": {
@@ -183,13 +312,15 @@ func TestGenerate(t *testing.T) {
 			pkg: "fixtures",
 			contains: []string{
 				"package fixtures",
-				"func FixtureUser() User {",
+				"func FixtureUser(mods ...func(*User)) *User {",
 				`FirstName: "FirstName"`,
 				"Age: 1",
+				"for _, mod := range mods {",
+				"return value",
 			},
 		},
 		{
-			name: "struct with ID field",
+			name: "struct with ID field (mod style)",
 			model: &generator.Model{
 				Structs: map[string]*generator.Struct{
 					"User": {
@@ -205,14 +336,15 @@ func TestGenerate(t *testing.T) {
 			pkg: "fixtures",
 			contains: []string{
 				`ID: "UserID"`,
+				"func FixtureUser(mods ...func(*User)) *User {",
 			},
 		},
 		{
-			name: "proto with enum",
+			name: "user with enum (mod style)",
 			model: &generator.Model{
 				Structs: map[string]*generator.Struct{
-					"ProductionOrder": {
-						Name: "ProductionOrder",
+					"User": {
+						Name: "User",
 						Fields: []generator.Field{
 							{Name: "Status", Type: generator.TypeRef{Kind: "enum", Name: "Status"}},
 						},
@@ -228,9 +360,9 @@ func TestGenerate(t *testing.T) {
 			},
 			pkg: "fixtures",
 			contains: []string{
-				"func FixtureStatus() Status {",
-				"return STATUS_UNSPECIFIED",
-				"Status: FixtureStatus()",
+				"func FixtureStatus(mods ...func(*Status)) *Status {",
+				"value := STATUS_UNSPECIFIED",
+				"Status: *FixtureStatus()",
 			},
 		},
 	}

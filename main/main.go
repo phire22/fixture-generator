@@ -19,6 +19,9 @@ func main() {
 	pkgPath := flag.String("pkg", "", "path to the Go package to generate fixtures for")
 	pkgName := flag.String("outpkg", "fixtures", "package name for the generated file")
 	outFile := flag.String("out", "", "output file path (prints to stdout if not specified)")
+	typePrefix := flag.String("typeprefix", "", "prefix for type names (e.g., 'productionorderbase' -> 'productionorderbase.Operation')")
+	funcPrefix := flag.String("funcprefix", "", "prefix for fixture function names (e.g., 'PB' -> 'FixturePBOperation')")
+	modStyle := flag.Bool("modstyle", true, "generate fixtures with functional options pattern (default: true)")
 	flag.Parse()
 
 	if *pkgPath == "" {
@@ -28,7 +31,12 @@ func main() {
 
 	pkgs := load(*pkgPath)
 	model := extract(pkgs)
-	out, _ := generator.GenerateFormatted(model, *pkgName)
+	opts := generator.GenerateOptions{
+		TypePrefix: *typePrefix,
+		FuncPrefix: *funcPrefix,
+		ModStyle:   *modStyle,
+	}
+	out, _ := generator.GenerateFormattedWithOptions(model, *pkgName, opts)
 
 	// Format the output
 	formatted, err := format.Source([]byte(out))
@@ -81,6 +89,7 @@ func extract(pkgs []*packages.Package) *generator.Model {
 	for _, pkg := range pkgs {
 		extractEnums(pkg, m)
 		extractOneOfs(pkg, m)
+		extractTypeDefs(pkg, m)
 		extractStructs(pkg, m)
 	}
 
@@ -175,6 +184,37 @@ func extractStructs(pkg *packages.Package, m *generator.Model) {
 					}
 				}
 				m.Structs[s.Name] = s
+			}
+		}
+	}
+}
+
+func extractTypeDefs(pkg *packages.Package, m *generator.Model) {
+	for _, file := range pkg.Syntax {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts := spec.(*ast.TypeSpec)
+				name := ts.Name.Name
+
+				// Skip unexported types
+				if name[0] >= 'a' && name[0] <= 'z' {
+					continue
+				}
+
+				// Check if it's a type alias like `type TenantID string`
+				if ident, ok := ts.Type.(*ast.Ident); ok {
+					underlying := resolveType(pkg.TypesInfo.TypeOf(ident))
+					if underlying.Kind == "primitive" {
+						m.TypeDefs[name] = &generator.TypeDef{
+							Name:       name,
+							Underlying: underlying,
+						}
+					}
+				}
 			}
 		}
 	}

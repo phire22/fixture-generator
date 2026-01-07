@@ -17,26 +17,26 @@ type User struct {
 	Activities []*Activity
 }
 
-type ItemVersionReference struct {
-	Id      isItemVersionReference_Id
+type UserReference struct {
+	Id      isUserReference_Id
 	Version string
 }
 
-type isItemVersionReference_Id interface {
-	isItemVersionReference_Id()
+type isUserReference_Id interface {
+	isUserReference_Id()
 }
 
-type ItemVersionReference_OseonId struct {
-	OseonId int64
+type UserReference_EmailId struct {
+	EmailId string
 }
 
-func (ItemVersionReference_OseonId) isItemVersionReference_Id() {}
+func (UserReference_EmailId) isUserReference_Id() {}
 
-type ItemVersionReference_SmosId struct {
-	SmosId string
+type UserReference_UserId struct {
+	UserId string
 }
 
-func (ItemVersionReference_SmosId) isItemVersionReference_Id() {}
+func (UserReference_UserId) isUserReference_Id() {}
 
 type Activity struct {
 	Name        string

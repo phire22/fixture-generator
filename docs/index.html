@@ -234,6 +234,27 @@
                 value="fixtures"
                 placeholder="Package name"
             />
+            <label for="typePrefix" style="margin: 0">Type Prefix:</label>
+            <input
+                type="text"
+                id="typePrefix"
+                value=""
+                placeholder="e.g. models"
+            />
+            <label for="funcPrefix" style="margin: 0">Func Prefix:</label>
+            <input
+                type="text"
+                id="funcPrefix"
+                value=""
+                placeholder="e.g. Models"
+            />
+            <div class="toggle-container">
+                <label for="modStyleToggle">Mod Style:</label>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="modStyleToggle" checked />
+                    <span class="toggle-slider"></span>
+                </div>
+            </div>
             <button id="generateBtn" onclick="generate()">
                 Generate Fixtures
             </button>
@@ -363,11 +384,23 @@ type Address struct {
                 const input = document.getElementById("input").value;
                 const pkgName =
                     document.getElementById("pkgName").value || "fixtures";
+                const typePrefix =
+                    document.getElementById("typePrefix").value || "";
+                const funcPrefix =
+                    document.getElementById("funcPrefix").value || "";
+                const modStyle =
+                    document.getElementById("modStyleToggle").checked;
 
                 document.getElementById("error").textContent = "";
 
                 try {
-                    const result = generateFixtures(input, pkgName);
+                    const result = generateFixtures(
+                        input,
+                        pkgName,
+                        typePrefix,
+                        funcPrefix,
+                        modStyle,
+                    );
                     if (result.error) {
                         document.getElementById("error").textContent =
                             result.error;

@@ -7,6 +7,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"strings"
 )
 
 // Model holds all extracted type information
@@ -99,6 +100,37 @@ func ParseSource(source string) (*Model, error) {
 
 	m := NewModel()
 
+	// First pass: find oneof interfaces
+	for _, decl := range f.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			name := typeSpec.Name.Name
+
+			// Look for oneof interfaces (start with "is") first - these can be lowercase
+			if _, ok := typeSpec.Type.(*ast.InterfaceType); ok {
+				if len(name) > 2 && name[:2] == "is" {
+					m.OneOfs[name] = ""
+					continue // Don't skip oneof interfaces
+				}
+			}
+
+			// Skip unexported types (except oneof interfaces handled above)
+			if name[0] >= 'a' && name[0] <= 'z' {
+				continue
+			}
+		}
+	}
+
+	// Second pass: find struct implementations and build model
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.TYPE {
@@ -146,6 +178,22 @@ func ParseSource(source string) (*Model, error) {
 					m.Structs[s.Name] = s
 				}
 
+				// Check if this struct implements a oneof interface
+				for ifaceName := range m.OneOfs {
+					if m.OneOfs[ifaceName] == "" {
+						parentName := ifaceName[2:] // remove "is" prefix
+						for i := len(parentName) - 1; i >= 0; i-- {
+							if parentName[i] == '_' {
+								prefix := parentName[:i]
+								if len(name) > len(prefix) && name[:len(prefix)] == prefix && name[len(prefix)] == '_' {
+									m.OneOfs[ifaceName] = name
+									break
+								}
+							}
+						}
+					}
+				}
+
 			case *ast.Ident:
 				// Type alias like `type TenantID string`
 				underlying := exprToTypeRef(t)
@@ -155,6 +203,10 @@ func ParseSource(source string) (*Model, error) {
 						Underlying: underlying,
 					}
 				}
+
+			case *ast.InterfaceType:
+				// Already handled in first pass
+				continue
 			}
 		}
 	}
@@ -198,12 +250,27 @@ func exprToTypeRef(expr ast.Expr) TypeRef {
 	}
 }
 
+// GenerateOptions holds optional configuration for code generation
+type GenerateOptions struct {
+	// TypePrefix is prepended to type names (e.g., "productionorderbase" -> "productionorderbase.Operation")
+	TypePrefix string
+	// FuncPrefix is inserted into fixture function names (e.g., "PB" -> "FixturePBOperation")
+	FuncPrefix string
+	// ModStyle generates fixtures with functional options pattern (default: true)
+	ModStyle bool
+}
+
 // Generate produces fixture functions from the model
 func Generate(m *Model, pkgName string) string {
+	return GenerateWithOptions(m, pkgName, GenerateOptions{ModStyle: true})
+}
+
+// GenerateWithOptions produces fixture functions from the model with optional prefixes
+func GenerateWithOptions(m *Model, pkgName string, opts GenerateOptions) string {
 	var b bytes.Buffer
 	b.WriteString("package " + pkgName + "\n\n")
 
-	imports := collectImports(m)
+	imports := collectImports(m, opts.TypePrefix)
 	if len(imports) > 0 {
 		b.WriteString("import (\n")
 		for _, imp := range imports {
@@ -214,10 +281,28 @@ func Generate(m *Model, pkgName string) string {
 
 	b.WriteString("func ptr[T any](v T) *T { return &v }\n\n")
 
+	// Helper to prefix type names
+	prefixType := func(name string) string {
+		if opts.TypePrefix != "" {
+			return opts.TypePrefix + "." + name
+		}
+		return name
+	}
+
 	// Generate typedef fixtures
 	for _, td := range m.TypeDefs {
-		fmt.Fprintf(&b, "func Fixture%s() %s {\n", td.Name, td.Name)
-		fmt.Fprintf(&b, "\treturn %s(%s)\n", td.Name, genPrimitiveValue(td.Underlying.Name, td.Name, td.Name))
+		if opts.ModStyle {
+			fmt.Fprintf(&b, "func Fixture%s%s(mods ...func(*%s)) *%s {\n", opts.FuncPrefix, td.Name, prefixType(td.Name), prefixType(td.Name))
+			value := fmt.Sprintf("%s(%s)", prefixType(td.Name), genPrimitiveValue(td.Underlying.Name, td.Name, td.Name))
+			fmt.Fprintf(&b, "\tresult := &%s\n", value)
+			fmt.Fprintf(&b, "\tfor _, mod := range mods {\n")
+			fmt.Fprintf(&b, "\t\tmod(result)\n")
+			fmt.Fprintf(&b, "\t}\n")
+			fmt.Fprintf(&b, "\treturn result\n")
+		} else {
+			fmt.Fprintf(&b, "func Fixture%s%s() %s {\n", opts.FuncPrefix, td.Name, prefixType(td.Name))
+			fmt.Fprintf(&b, "\treturn %s(%s)\n", prefixType(td.Name), genPrimitiveValue(td.Underlying.Name, td.Name, td.Name))
+		}
 		fmt.Fprintf(&b, "}\n\n")
 	}
 
@@ -233,19 +318,41 @@ func Generate(m *Model, pkgName string) string {
 		if firstValue == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "func Fixture%s() %s {\n", e.Name, e.Name)
-		fmt.Fprintf(&b, "\treturn %s\n", firstValue)
+		if opts.ModStyle {
+			fmt.Fprintf(&b, "func Fixture%s%s(mods ...func(*%s)) *%s {\n", opts.FuncPrefix, e.Name, prefixType(e.Name), prefixType(e.Name))
+			fmt.Fprintf(&b, "\tvalue := %s\n", prefixType(firstValue))
+			fmt.Fprintf(&b, "\tfor _, mod := range mods {\n")
+			fmt.Fprintf(&b, "\t\tmod(&value)\n")
+			fmt.Fprintf(&b, "\t}\n")
+			fmt.Fprintf(&b, "\treturn &value\n")
+		} else {
+			fmt.Fprintf(&b, "func Fixture%s%s() %s {\n", opts.FuncPrefix, e.Name, prefixType(e.Name))
+			fmt.Fprintf(&b, "\treturn %s\n", prefixType(firstValue))
+		}
 		fmt.Fprintf(&b, "}\n\n")
 	}
 
 	// Generate struct fixtures
 	for _, s := range m.Structs {
-		fmt.Fprintf(&b, "func Fixture%s() %s {\n", s.Name, s.Name)
-		fmt.Fprintf(&b, "\treturn %s{\n", s.Name)
-		for _, f := range s.Fields {
-			fmt.Fprintf(&b, "\t\t%s: %s,\n", f.Name, GenValue(m, f.Type, f.Name, s.Name))
+		if opts.ModStyle {
+			fmt.Fprintf(&b, "func Fixture%s%s(mods ...func(*%s)) *%s {\n", opts.FuncPrefix, s.Name, prefixType(s.Name), prefixType(s.Name))
+			fmt.Fprintf(&b, "\tvalue := &%s{\n", prefixType(s.Name))
+			for _, f := range s.Fields {
+				fmt.Fprintf(&b, "\t\t%s: %s,\n", f.Name, genValue(m, f.Type, f.Name, s.Name, opts))
+			}
+			fmt.Fprintf(&b, "\t}\n")
+			fmt.Fprintf(&b, "\tfor _, mod := range mods {\n")
+			fmt.Fprintf(&b, "\t\tmod(value)\n")
+			fmt.Fprintf(&b, "\t}\n")
+			fmt.Fprintf(&b, "\treturn value\n")
+		} else {
+			fmt.Fprintf(&b, "func Fixture%s%s() %s {\n", opts.FuncPrefix, s.Name, prefixType(s.Name))
+			fmt.Fprintf(&b, "\treturn %s{\n", prefixType(s.Name))
+			for _, f := range s.Fields {
+				fmt.Fprintf(&b, "\t\t%s: %s,\n", f.Name, genValue(m, f.Type, f.Name, s.Name, opts))
+			}
+			fmt.Fprintf(&b, "\t}\n")
 		}
-		fmt.Fprintf(&b, "\t}\n")
 		fmt.Fprintf(&b, "}\n\n")
 	}
 
@@ -254,7 +361,12 @@ func Generate(m *Model, pkgName string) string {
 
 // GenerateFormatted produces formatted fixture functions
 func GenerateFormatted(m *Model, pkgName string) (string, error) {
-	out := Generate(m, pkgName)
+	return GenerateFormattedWithOptions(m, pkgName, GenerateOptions{ModStyle: true})
+}
+
+// GenerateFormattedWithOptions produces formatted fixture functions with optional prefixes
+func GenerateFormattedWithOptions(m *Model, pkgName string, opts GenerateOptions) (string, error) {
+	out := GenerateWithOptions(m, pkgName, opts)
 	formatted, err := format.Source([]byte(out))
 	if err != nil {
 		return out, nil
@@ -262,31 +374,90 @@ func GenerateFormatted(m *Model, pkgName string) (string, error) {
 	return string(formatted), nil
 }
 
-// GenValue generates a default value for a type
+// GenValue generates a default value for a type (without prefix support, for backward compatibility)
 func GenValue(m *Model, t TypeRef, fieldName string, structName string) string {
+	return genValue(m, t, fieldName, structName, GenerateOptions{ModStyle: true})
+}
+
+// genValue generates a default value for a type with optional prefix support
+func genValue(m *Model, t TypeRef, fieldName string, structName string, opts GenerateOptions) string {
+	prefixType := func(name string) string {
+		if opts.TypePrefix != "" {
+			return opts.TypePrefix + "." + name
+		}
+		return name
+	}
+
 	switch t.Kind {
 	case "primitive":
 		return genPrimitiveValue(t.Name, fieldName, structName)
 	case "struct":
+		// Check if this is actually a oneof interface (starts with "is")
+		if len(t.Name) > 2 && t.Name[:2] == "is" {
+			// This is a oneof interface, find the first implementation
+			if impl, ok := m.OneOfs[t.Name]; ok && impl != "" {
+				// Check if we have the implementation struct in our model
+				if implStruct, exists := m.Structs[impl]; exists {
+					// Generate populated struct with default values
+					var structFields []string
+					for _, field := range implStruct.Fields {
+						fieldValue := genValue(m, field.Type, field.Name, impl, opts)
+						structFields = append(structFields, fmt.Sprintf("%s: %s", field.Name, fieldValue))
+					}
+					if len(structFields) > 0 {
+						return fmt.Sprintf("&%s{\n\t\t\t%s,\n\t\t}", prefixType(impl), strings.Join(structFields, ",\n\t\t\t"))
+					}
+				}
+				// Fallback to empty struct if no fields found
+				return "&" + prefixType(impl) + "{}"
+			}
+			return "nil"
+		}
+
 		// Check if it's actually a typedef
 		if _, ok := m.TypeDefs[t.Name]; ok {
-			return "Fixture" + t.Name + "()"
+			if opts.ModStyle {
+				return "*Fixture" + opts.FuncPrefix + t.Name + "()"
+			}
+			return "Fixture" + opts.FuncPrefix + t.Name + "()"
 		}
-		return "Fixture" + t.Name + "()"
+		if opts.ModStyle {
+			return "*Fixture" + opts.FuncPrefix + t.Name + "()"
+		}
+		return "Fixture" + opts.FuncPrefix + t.Name + "()"
 	case "enum":
-		return "Fixture" + t.Name + "()"
+		if opts.ModStyle {
+			return "*Fixture" + opts.FuncPrefix + t.Name + "()"
+		}
+		return "Fixture" + opts.FuncPrefix + t.Name + "()"
 	case "typedef":
-		return "Fixture" + t.Name + "()"
+		if opts.ModStyle {
+			return "*Fixture" + opts.FuncPrefix + t.Name + "()"
+		}
+		return "Fixture" + opts.FuncPrefix + t.Name + "()"
 	case "oneof":
 		if impl, ok := m.OneOfs[t.Name]; ok && impl != "" {
-			return "&" + impl + "{}"
+			// Check if we have the implementation struct in our model
+			if implStruct, exists := m.Structs[impl]; exists {
+				// Generate populated struct with default values
+				var structFields []string
+				for _, field := range implStruct.Fields {
+					fieldValue := genValue(m, field.Type, field.Name, impl, opts)
+					structFields = append(structFields, fmt.Sprintf("%s: %s", field.Name, fieldValue))
+				}
+				if len(structFields) > 0 {
+					return fmt.Sprintf("&%s{\n\t\t\t%s,\n\t\t}", prefixType(impl), strings.Join(structFields, ",\n\t\t\t"))
+				}
+			}
+			// Fallback to empty struct if no fields found
+			return "&" + prefixType(impl) + "{}"
 		}
 		return "nil"
 	case "slice":
 		if t.Elem == nil {
 			return "nil"
 		}
-		return "[]" + TypeName(*t.Elem) + "{" + GenValue(m, *t.Elem, fieldName, structName) + "}"
+		return "[]" + typeName(*t.Elem, opts) + "{" + genValue(m, *t.Elem, fieldName, structName, opts) + "}"
 	case "pointer":
 		if t.Elem == nil || t.Elem.Kind == "unknown" {
 			return "nil"
@@ -296,7 +467,11 @@ func GenValue(m *Model, t TypeRef, fieldName string, structName string) string {
 				return ext.Value
 			}
 		}
-		return "ptr(" + GenValue(m, *t.Elem, fieldName, structName) + ")"
+		if opts.ModStyle && (t.Elem.Kind == "struct" || t.Elem.Kind == "enum" || t.Elem.Kind == "typedef") {
+			return genValue(m, *t.Elem, fieldName, structName, opts)
+		}
+
+		return "ptr(" + genValue(m, *t.Elem, fieldName, structName, opts) + ")"
 	case "external":
 		if ext, ok := ExternalTypes[t.Name]; ok {
 			return ext.Value
@@ -324,28 +499,44 @@ func genPrimitiveValue(typeName, fieldName, structName string) string {
 	}
 }
 
-// TypeName returns the Go type name for a TypeRef
+// TypeName returns the Go type name for a TypeRef (without prefix support, for backward compatibility)
 func TypeName(t TypeRef) string {
+	return typeName(t, GenerateOptions{})
+}
+
+// typeName returns the Go type name for a TypeRef with optional prefix support
+func typeName(t TypeRef, opts GenerateOptions) string {
+	prefixType := func(name string) string {
+		if opts.TypePrefix != "" {
+			return opts.TypePrefix + "." + name
+		}
+		return name
+	}
+
 	switch t.Kind {
 	case "pointer":
 		if t.Elem != nil {
-			return "*" + TypeName(*t.Elem)
+			return "*" + typeName(*t.Elem, opts)
 		}
 	case "slice":
 		if t.Elem != nil {
-			return "[]" + TypeName(*t.Elem)
+			return "[]" + typeName(*t.Elem, opts)
+		}
+	case "struct", "enum", "typedef":
+		if t.Name != "" {
+			return prefixType(t.Name)
 		}
 	}
 	if t.Name != "" {
 		return t.Name
 	}
 	if t.Elem != nil {
-		return TypeName(*t.Elem)
+		return typeName(*t.Elem, opts)
 	}
 	return "interface{}"
 }
 
-func collectImports(m *Model) []string {
+func collectImports(m *Model, typePrefix string) []string {
 	usedExternals := make(map[string]bool)
 
 	for _, s := range m.Structs {
@@ -354,18 +545,33 @@ func collectImports(m *Model) []string {
 		}
 	}
 
-	if len(usedExternals) == 0 {
+	// If no external types and no type prefix, no imports needed
+	if len(usedExternals) == 0 && typePrefix == "" {
 		return nil
 	}
 
 	importSet := make(map[string]bool)
-	for _, imp := range RequiredImports {
-		importSet[imp] = true
+
+	// Add type prefix import if specified
+	if typePrefix != "" {
+		// The typePrefix is expected to be a package alias or short name
+		// The user should provide the full import path via a separate flag if needed
+		// For now, we assume the typePrefix is already importable or in the same module
 	}
-	for extName := range usedExternals {
-		if ext, ok := ExternalTypes[extName]; ok {
-			importSet[ext.Import] = true
+
+	if len(usedExternals) > 0 {
+		for _, imp := range RequiredImports {
+			importSet[imp] = true
 		}
+		for extName := range usedExternals {
+			if ext, ok := ExternalTypes[extName]; ok {
+				importSet[ext.Import] = true
+			}
+		}
+	}
+
+	if len(importSet) == 0 {
+		return nil
 	}
 
 	imports := make([]string, 0, len(importSet))

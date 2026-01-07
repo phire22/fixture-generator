@@ -13,6 +13,8 @@ A simple tool that generates `Fixture<TypeName>()` functions for Go structs, typ
 - Handles protobuf-generated types (skips internal fields like `state`, `sizeCache`, etc.)
 - Supports enums (returns the first defined value)
 - Supports oneofs (takes the first defined value)
+- **Mod Style** (default): Generates fixtures with functional options pattern for easy customization
+- Classic Style: Traditional simple fixture functions
 
 ## Installation
 
@@ -41,6 +43,9 @@ go run ./main -pkg <package-path> -outpkg <output-package-name> -out <output-fil
 | `-pkg` | Path to the Go package to generate fixtures for | (required) |
 | `-outpkg` | Package name for the generated file | `fixtures` |
 | `-out` | Output file path (prints to stdout if not specified) | - |
+| `-typeprefix` | Prefix for type names (e.g., `mypackage` → `mypackage.User`) | - |
+| `-funcprefix` | Prefix for fixture function names (e.g., `My` → `FixtureMyUser`) | - |
+| `-modstyle` | Generate fixtures with functional options pattern | `true` |
 
 ### Example
 
@@ -49,6 +54,106 @@ go run ./main \
   -pkg ./path/to/your/package \
   -outpkg yourpackage \
   -out ./path/to/your/package/fixtures.go
+```
+
+### Example with Prefixes
+
+When generating fixtures for types from another package (e.g., `account`):
+
+```bash
+go run ./main \
+  -pkg ./path/to/account \
+  -outpkg fixtures \
+  -typeprefix account \
+  -funcprefix Account \
+  -out ./fixtures/account_fixtures.go
+```
+
+This generates fixtures like:
+
+```go
+func FixtureAccountUser() account.User {
+    return account.User{
+        ID:      "UserID",
+        Profile: ptr(FixtureAccountProfile()),
+        Tags:    []string{"Tags"},
+    }
+}
+
+func FixtureAccountProfile() account.Profile {
+    return account.Profile{
+        Name:     "Name",
+        Email:    "Email",
+        Location: "Location",
+    }
+}
+```
+
+## Fixture Styles
+
+### Mod Style (Default)
+
+Generates fixtures with functional options for easy customization:
+
+```go
+func FixtureUser(mods ...func(*User)) *User {
+    value := &User{
+        ID:        "UserID",
+        FirstName: "FirstName",
+        LastName:  "LastName",
+        Age:       1,
+        Active:    true,
+        Address:   *FixtureAddress(),
+        Tags:      []string{"Tags"},
+    }
+    for _, mod := range mods {
+        mod(value)
+    }
+    return value
+}
+```
+
+This allows you to customize fixtures in tests:
+
+```go
+// Use default values
+user := FixtureUser()
+
+// Customize specific fields
+user := FixtureUser(func(u *User) {
+    u.FirstName = "Alice"
+    u.Age = 30
+})
+
+// Multiple modifications
+user := FixtureUser(
+    func(u *User) { u.FirstName = "Bob" },
+    func(u *User) { u.Active = false },
+)
+```
+
+### Classic Style
+
+Generate traditional simple fixture functions:
+
+```bash
+go run ./main -pkg ./path/to/package -modstyle=false
+```
+
+Produces:
+
+```go
+func FixtureUser() User {
+    return User{
+        ID:        "UserID",
+        FirstName: "FirstName",
+        LastName:  "LastName",
+        Age:       1,
+        Active:    true,
+        Profile:   ptr(FixtureProfile()),
+        Tags:      []string{"Tags"},
+    }
+}
 ```
 
 ## Web Interface
